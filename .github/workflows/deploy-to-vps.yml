@@ -52,5 +52,6 @@ jobs:
           npx prisma migrate deploy
 
           echo "Restarting PM2 process..."
-          # Reload the API with PM2, or start if it doesn't exist
+          # Reload the API with PM2, or start if it doesn't exist.
+          # Because tsconfig uses rootDir ".", the build lands at dist/src/server.js.
           pm2 reload ecosystem.config.cjs || pm2 start ecosystem.config.cjs

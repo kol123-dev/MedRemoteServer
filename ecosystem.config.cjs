@@ -18,7 +18,7 @@ module.exports = {
   apps: [
     {
       name: "medremote-backend",
-      script: "dist/server.js",        // production build output
+      script: "dist/src/server.js", // production build output (tsconfig rootDir is ".")
       cwd: __dirname,
       node_args: "--max-old-space-size=512",
       instances: 1,                     // single instance — avoids port conflicts
