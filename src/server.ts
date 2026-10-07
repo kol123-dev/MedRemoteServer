@@ -33,6 +33,21 @@ import adminRoutes from './routes/admin.routes.js';
 const app = express();
 const PORT = env.PORT;
 
+// Health check — registered FIRST (before CORS/helmet/other middlewares) so uptime
+// monitors (which typically send no Origin header) always get a clean 200 and are
+// never blocked by the production CORS allowlist.
+const healthHandler = (_req: express.Request, res: express.Response): void => {
+  res.status(200).json({
+    status: 'ok',
+    env: env.NODE_ENV,
+    sms: { enabled: env.SMS_ENABLED, provider: env.SMS_PROVIDER },
+    payment: { mPesa: Boolean(env.MPESA_CONSUMER_KEY && env.MPESA_PASSKEY), paystack: Boolean(env.PAYSTACK_SECRET_KEY) },
+    llm: { provider: resolveProvider().id, config: env.LLM_PROVIDER ?? 'auto' },
+    uptimeSec: Math.floor(process.uptime()),
+  });
+};
+app.get('/health', healthHandler);
+
 // ========== PRODUCTION SECURITY (helmet) + DEPLOYMENT PROXY =============
 // X-Forwarded-For / X-Forwarded-Proto trust for Render, Railway, Cloudflare.
 app.disable('x-powered-by');
@@ -108,16 +123,6 @@ app.use(express.json({ limit: '2mb' }));
 app.use(cookieParser());
 app.use(idempotencyMiddleware(true));
 
-// Health check
-app.get('/health', (_req, res) => res.status(200).json({
-  status: 'ok',
-  env: env.NODE_ENV,
-  sms: { enabled: env.SMS_ENABLED, provider: env.SMS_PROVIDER },
-  payment: { mPesa: Boolean(env.MPESA_CONSUMER_KEY && env.MPESA_PASSKEY), paystack: Boolean(env.PAYSTACK_SECRET_KEY) },
-  llm: { provider: resolveProvider().id, config: env.LLM_PROVIDER ?? 'auto' },
-  uptimeSec: Math.floor(process.uptime()),
-}));
-
 // Domain-specific Routes — original two v1 routes, unchanged, backward compatible
 app.use('/api/jobs', jobRoutes);
 app.use('/api/payments', paymentRoutes);
@@ -153,7 +158,7 @@ app.use((_req, res) => {
     code: 404,
     routes: [
       'GET  /health',
-      'POST /api/auth/signup | /signin | /google | /refresh',
+      'POST /api/auth/signup | /signin | /google | /linkedin | /refresh',
       'GET  /api/users/me (protected)',
       'GET  /api/jobs | /api/jobs/:id',
       'POST /api/ai-resume/analyze | /rewrite | /:id/download',
