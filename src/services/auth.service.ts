@@ -1,5 +1,6 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import { createPublicKey } from 'node:crypto';
 import { PrismaClient, AppSource, Role, PaymentTier } from '@prisma/client';
 import { OAuth2Client, LoginTicket } from 'google-auth-library';
 import { env } from '../config/env.js';
@@ -336,6 +337,164 @@ export async function signInWithGoogle(
         firstName: firstName ?? null,
         lastName: lastName ?? null,
         source: AppSource.GOOGLE,
+        tier: PaymentTier.FREE,
+        role: Role.USER,
+        lastLoggedInAt: now,
+        createdAt: now,
+      },
+    });
+  } else {
+    user = await prisma.user.update({
+      where: { id: user.id },
+      data: { lastLoggedInAt: now },
+    });
+  }
+
+  const accessToken = signJwtAccess(user.id, user.tier, user.role);
+  const refreshToken = signJwtRefresh(user.id);
+
+  void picture;
+  void reqCtx;
+  return { user, isNewUser, accessToken, refreshToken };
+}
+
+/**
+ * Verify a LinkedIn OpenID Connect `id_token` and return its claims.
+ *
+ * LinkedIn issues RS256-signed JWTs. We validate signature against LinkedIn's
+ * published public keys (JWKS), then enforce `iss`, `aud` and expiry — matching
+ * the way Google's id_token is validated but via a JWKS endpoint.
+ */
+interface LinkedInClaims {
+  sub: string;
+  email?: string;
+  email_verified?: boolean;
+  name?: string;
+  given_name?: string;
+  family_name?: string;
+  picture?: string;
+  aud?: string | string[];
+  iss?: string;
+  exp?: number;
+}
+
+const LINKEDIN_JWKS_URL = 'https://www.linkedin.com/oauth/v2/publickeys';
+const LINKEDIN_ISS = 'https://www.linkedin.com/oauth';
+
+/** Minimal JWK shape returned by LinkedIn's JWKS endpoint. */
+interface LinkedinJwk {
+  [key: string]: unknown;
+  kid?: string;
+  kty?: string;
+  n?: string;
+  e?: string;
+  alg?: string;
+  use?: string;
+}
+
+const jwksCache: { keys: LinkedinJwk[]; fetchedAt: number } | null = null;
+
+function jwkToPem(jwk: LinkedinJwk): string {
+  const keyObject = createPublicKey({ key: jwk, format: 'jwk' });
+  return keyObject.export({ type: 'spki', format: 'pem' }).toString();
+}
+
+async function fetchLinkedInPublicKeys(): Promise<LinkedinJwk[]> {
+  if (jwksCache && jwksCache.fetchedAt > Date.now() - 3600_000) {
+    return jwksCache.keys;
+  }
+  const res = await fetch(LINKEDIN_JWKS_URL, { headers: { Accept: 'application/json' } });
+  if (!res.ok) {
+    throw new Error('Unable to fetch LinkedIn public keys');
+  }
+  const body = (await res.json()) as { keys?: LinkedinJwk[] };
+  const keys = body.keys ?? [];
+  if (!keys.length) {
+    throw new Error('LinkedIn JWKS returned no keys');
+  }
+  (jwksCache as { keys: LinkedinJwk[]; fetchedAt: number }) = { keys, fetchedAt: Date.now() };
+  return keys;
+}
+
+async function verifyLinkedInIdToken(idToken: string): Promise<LinkedInClaims> {
+  const unverified = jwt.decode(idToken, { complete: true }) as
+    | { header: { kid?: string }; payload: LinkedInClaims }
+    | null;
+  if (!unverified?.payload || !unverified.header) {
+    throw new Error('Invalid LinkedIn ID token');
+  }
+  const claims = unverified.payload;
+  if (claims.iss !== LINKEDIN_ISS) {
+    throw new Error('Invalid LinkedIn issuer');
+  }
+  const expectedAud = env.LINKEDIN_CLIENT_ID;
+  if (expectedAud) {
+    const aud = Array.isArray(claims.aud) ? claims.aud : claims.aud ? [claims.aud] : [];
+    if (!aud.includes(expectedAud)) {
+      throw new Error('Invalid LinkedIn audience');
+    }
+  }
+  if (claims.exp && claims.exp * 1000 < Date.now()) {
+    throw new Error('LinkedIn ID token expired');
+  }
+
+  const kid = unverified.header.kid;
+  const keys = await fetchLinkedInPublicKeys();
+  const key = keys.find((k) => k.kid === kid);
+  if (!key) {
+    throw new Error('No matching LinkedIn public key');
+  }
+  const pem = jwkToPem(key);
+  jwt.verify(idToken, pem, { algorithms: ['RS256'] });
+  return claims;
+}
+
+export async function signInWithLinkedIn(
+  idToken: string,
+  reqCtx?: ReqContext,
+): Promise<GoogleAuthResult> {
+  const payload = await verifyLinkedInIdToken(idToken);
+
+  const sub = payload.sub;
+  const email = payload.email;
+  const firstName = payload.given_name || payload.name?.split(' ')[0];
+  const lastName = payload.family_name || (payload.name?.split(' ').slice(1).join(' ') || undefined);
+  const picture = payload.picture;
+
+  let user = await prisma.user.findUnique({ where: { linkedinId: sub } });
+
+  let isNewUser = false;
+  const now = new Date();
+
+  if (!user && email) {
+    user = await prisma.user.findUnique({ where: { email } });
+    if (user) {
+      user = await prisma.user.update({
+        where: { id: user.id },
+        data: { linkedinId: sub, lastLoggedInAt: now },
+      });
+    }
+  }
+
+  if (!user) {
+    isNewUser = true;
+    let phoneBase = '254' + Math.floor(100000000 + Math.random() * 900000000).toString();
+    let attempts = 0;
+    while (attempts < 10) {
+      const existing = await prisma.user.findUnique({ where: { phoneNumber: phoneBase } });
+      if (!existing) break;
+      phoneBase = '254' + Math.floor(100000000 + Math.random() * 900000000).toString();
+      attempts++;
+    }
+
+    user = await prisma.user.create({
+      data: {
+        linkedinId: sub,
+        email: email ?? null,
+        phoneNumber: phoneBase,
+        firstName: firstName ?? null,
+        lastName: lastName ?? null,
+        source: AppSource.LINKEDIN,
         tier: PaymentTier.FREE,
         role: Role.USER,
         lastLoggedInAt: now,

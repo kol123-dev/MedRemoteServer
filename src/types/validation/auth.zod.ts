@@ -19,6 +19,10 @@ export const GoogleSignInZod = z.object({
   idToken: z.string().min(10),
 });
 
+export const LinkedInSignInZod = z.object({
+  idToken: z.string().min(10),
+});
+
 export const UserPatchMeZod = z.object({
   firstName: z.string().max(40).optional(),
   lastName: z.string().max(40).optional(),

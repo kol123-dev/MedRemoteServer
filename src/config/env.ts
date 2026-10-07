@@ -45,6 +45,10 @@ const EnvSchema = z.object({
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
 
+  LINKEDIN_CLIENT_ID: z.string().optional(),
+  LINKEDIN_CLIENT_SECRET: z.string().optional(),
+  LINKEDIN_REDIRECT_URI: z.string().optional(),
+
   SMS_ENABLED: z.coerce.boolean().default(false),
   SMS_PROVIDER: SmsProvider,
   LLM_PROVIDER: z.enum(['openai', 'anthropic', 'gemini', 'mock', 'auto']).optional(),

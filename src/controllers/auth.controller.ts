@@ -3,10 +3,11 @@ import {
   signUp as signUpService,
   signInWithPassword,
   signInWithGoogle,
+  signInWithLinkedIn,
   refreshTokenRotate,
   revokeRefresh,
 } from '../services/auth.service.js';
-import { SignUpZod, SignInZod, GoogleSignInZod } from '../types/validation/auth.zod.js';
+import { SignUpZod, SignInZod, GoogleSignInZod, LinkedInSignInZod } from '../types/validation/auth.zod.js';
 import { writeAudit, AdminAction } from '../services/admin/audit.service.js';
 
 const ACCESS_TOKEN_MAX_AGE_SEC = 15 * 60;
@@ -140,6 +141,35 @@ export const googleSignIn = async (req: Request, res: Response): Promise<void> =
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Google sign in failed';
+    res.status(400).json({ error: message, code: 400 });
+  }
+};
+
+export const linkedInSignIn = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const body = LinkedInSignInZod.parse(req.body);
+    const ctx = extractReqCtx(req);
+
+    const result = await signInWithLinkedIn(body.idToken, ctx);
+
+    setAuthCookies(res, result.accessToken, result.refreshToken);
+
+    void writeAudit({
+      context: { actorUserId: result.user?.id ?? null, ipAddress: ctx.ip, userAgent: ctx.ua },
+      action: AdminAction.USER_SIGNIN,
+      targetType: 'user',
+      targetId: result.user?.id ?? undefined,
+      meta: { via: 'linkedin' },
+    });
+
+    res.status(200).json({
+      accessToken: result.accessToken,
+      user: result.user,
+      isNewUser: result.isNewUser,
+      expiresIn: ACCESS_TOKEN_MAX_AGE_SEC,
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'LinkedIn sign in failed';
     res.status(400).json({ error: message, code: 400 });
   }
 };

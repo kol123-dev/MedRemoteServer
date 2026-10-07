@@ -75,6 +75,7 @@ model User {
   lastName                   String?
   passwordHash               String?
   googleId                   String?         @unique
+  linkedinId                 String?         @unique
   source                     AppSource       @default(MANUAL_UPLOAD)
   country                    String?         @default("Kenya")
   profileHeadline            String?         @db.Text

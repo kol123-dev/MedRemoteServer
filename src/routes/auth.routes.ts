@@ -1,14 +1,15 @@
 import { Router } from 'express';
-import { signUp, signIn, googleSignIn, refresh, revokeSessions } from '../controllers/auth.controller.js';
+import { signUp, signIn, googleSignIn, linkedInSignIn, refresh, revokeSessions } from '../controllers/auth.controller.js';
 import { requireAuth } from '../middleware/auth.middleware.js';
 import { validateBody } from '../middleware/validate.middleware.js';
-import { SignUpZod, SignInZod, GoogleSignInZod } from '../types/validation/auth.zod.js';
+import { SignUpZod, SignInZod, GoogleSignInZod, LinkedInSignInZod } from '../types/validation/auth.zod.js';
 
 const router = Router();
 
 router.post('/signup', validateBody(SignUpZod), signUp);
 router.post('/signin', validateBody(SignInZod), signIn);
 router.post('/google', validateBody(GoogleSignInZod), googleSignIn);
+router.post('/linkedin', validateBody(LinkedInSignInZod), linkedInSignIn);
 router.post('/refresh', refresh);
 router.post('/logout', requireAuth(), revokeSessions);
 

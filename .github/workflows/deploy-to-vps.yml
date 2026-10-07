@@ -50,6 +50,9 @@ jobs:
           echo "Applying migrations..."
           # Apply any committed schema migrations.
           npx prisma migrate deploy
+          # This project provisions with `prisma db push` (no migrations tracked),
+          # so sync additive schema fields (e.g. linkedinId) to the DB.
+          npx prisma db push --accept-data-loss
 
           echo "Restarting PM2 process..."
           # Reload the API with PM2, or start if it doesn't exist.
