@@ -1,0 +1,49 @@
+name: Deploy to VPS
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Deploy to VPS
+      uses: appleboy/ssh-action@master
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        host: ${{ secrets.VPS_HOST }}
+        username: infinia
+        key: ${{ secrets.SSH_PRIVATE_KEY }}
+        envs: GITHUB_TOKEN
+        script: |
+          set -e
+          cd /var/www/medremote-backend
+
+          # Configure git to use the ephemeral token for this session.
+          # This allows pulling without stored credentials on the server.
+          git remote set-url origin `https://x-access-token:$GITHUB_TOKEN@github.com/${{` github.repository }}.git
+
+          # Sync tracked files to origin/main.
+          # NOTE: .env is git-ignored, so it stays untouched on the server.
+          git fetch origin
+          git checkout -f main
+          git reset --hard origin/main
+
+          # Build with the production .env already present on the server.
+          # Dependencies install from the fresh package-lock.
+          npm ci
+          npx prisma generate
+          npm run build
+
+          # Apply any committed schema migrations.
+          npx prisma migrate deploy
+
+          # Reload the API with PM2 (config comes from ecosystem.config.cjs).
+          pm2 reload ecosystem.config.cjs
