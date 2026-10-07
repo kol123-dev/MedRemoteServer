@@ -12,40 +12,53 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
 
     - name: Deploy to VPS
       uses: appleboy/ssh-action@master
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        DEPLOY_TOKEN: ${{ secrets.DEPLOY_TOKEN }}
         REPO: ${{ github.repository }}
       with:
         host: ${{ secrets.VPS_HOST }}
         username: infinia
         key: ${{ secrets.SSH_PRIVATE_KEY }}
-        envs: GITHUB_TOKEN,REPO
+        envs: DEPLOY_TOKEN,REPO
         script: |
           set -e
+          echo "Moving to project directory..."
           cd /var/www/medremote-backend
 
-          # Configure git to use the ephemeral token for this session.
-          # This allows pulling without stored credentials on the server.
-          git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${REPO}.git"
+          echo "Configuring git remote (HTTPS + token)..."
+          # Use an ephemeral PAT so no credentials are stored on the server.
+          if [ -z "${DEPLOY_TOKEN}" ]; then
+            echo "ERROR: secrets.DEPLOY_TOKEN is not set. Add a PAT with Contents:Read scope to fetch this repo."
+            exit 1
+          fi
+          git remote set-url origin "https://x-access-token:${DEPLOY_TOKEN}@github.com/${REPO}.git"
 
+          echo "Fetching from origin..."
           # Sync tracked files to origin/main.
           # NOTE: .env is git-ignored, so it stays untouched on the server.
           git fetch origin
           git checkout -f main
           git reset --hard origin/main
 
+          echo "Installing dependencies..."
           # Build with the production .env already present on the server.
           # Dependencies install from the fresh package-lock.
           npm ci
+          
+          echo "Generating Prisma client..."
           npx prisma generate
+          
+          echo "Building project..."
           npm run build
 
+          echo "Applying migrations..."
           # Apply any committed schema migrations.
           npx prisma migrate deploy
 
-          # Reload the API with PM2 (config comes from ecosystem.config.cjs).
-          pm2 reload ecosystem.config.cjs
+          echo "Restarting PM2 process..."
+          # Reload the API with PM2, or start if it doesn't exist
+          pm2 reload ecosystem.config.cjs || pm2 start ecosystem.config.cjs
