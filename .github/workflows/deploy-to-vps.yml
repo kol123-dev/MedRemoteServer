@@ -18,18 +18,19 @@ jobs:
       uses: appleboy/ssh-action@master
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        REPO: ${{ github.repository }}
       with:
         host: ${{ secrets.VPS_HOST }}
         username: infinia
         key: ${{ secrets.SSH_PRIVATE_KEY }}
-        envs: GITHUB_TOKEN
+        envs: GITHUB_TOKEN,REPO
         script: |
           set -e
           cd /var/www/medremote-backend
 
           # Configure git to use the ephemeral token for this session.
           # This allows pulling without stored credentials on the server.
-          git remote set-url origin `https://x-access-token:$GITHUB_TOKEN@github.com/${{` github.repository }}.git
+          git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${REPO}.git"
 
           # Sync tracked files to origin/main.
           # NOTE: .env is git-ignored, so it stays untouched on the server.
