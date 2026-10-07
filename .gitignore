@@ -1,0 +1,71 @@
+# ------------------------------------------------------------------
+# MedRemote Backend — .gitignore
+# Everything below stays out of git. The server pulls this repo, so
+# keep it lean: no local builds, secrets, dev data, or heavy binaries.
+# ------------------------------------------------------------------
+
+# ---------- Environment & secrets (NEVER commit) ----------
+# NOTE: .env.example and .env.production.example ARE tracked as
+# templates — do not remove them from the repo.
+.env
+.env.*
+!.env.example
+!.env.production.example
+*.pem
+*.key
+
+# ---------- Dependencies ----------
+node_modules/
+.node_modules/
+
+# ---------- Build output ----------
+dist/
+build/
+*.tsbuildinfo
+.next/
+out/
+
+# ---------- Tests / coverage ----------
+coverage/
+# (do NOT ignore the `test/` directory — it holds real integration/unit tests)
+
+# ---------- Runtime logs & diagnostics ----------
+*.log
+logs/
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ---------- Prisma local dev assets ----------
+# dev.db is the local SQLite dev database, not the production MySQL schema.
+prisma/dev.db
+prisma/dev.db-journal
+prisma/migrations/dev/
+prisma/*.db-journal
+
+# ---------- Heavy / machine-specific artifacts ----------
+# Windows Playwright browser binaries must NOT be pushed (Linux server
+# installs its own via `npx playwright install --with-deps chromium`).
+.browsers/
+playwright/.cache/
+
+# ---------- Scraper sample output ----------
+.sample-output/
+sample-output/
+
+# ---------- Temp / one-off throwaway scripts ----------
+/tmp-*.ts
+/scripts/tmp-*.ts
+
+# ---------- OS junk ----------
+.DS_Store
+Thumbs.db
+
+# ---------- IDE / editor ----------
+.vscode/
+.idea/
+*.swp
+
+# ---------- Misc ----------
+.cache/
+*.local

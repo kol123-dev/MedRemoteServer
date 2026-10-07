@@ -1,0 +1,403 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------- Existing enums (UNCHANGED, backward compat) ----------------
+enum Role {
+  USER
+  SUBSCRIBER
+  ADMIN
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCESS
+  FAILED
+}
+
+// ---------------- NEW ENUMS (additive) ----------------------------------------
+enum PaymentTier {
+  FREE
+  BASIC
+  PREMIUM
+  LIFETIME
+}
+
+enum MatchReason {
+  EXACT_SKILL
+  CERT_EQUIVALENT
+  KENYA_EXPERIENCE_MAPPED
+  KEYWORD_HIT
+  LOCATION_OPEN
+}
+
+enum ApplyStage {
+  QUEUED
+  APPROVED
+  GENERATING
+  SUBMITTED
+  NEEDS_MORE_INFO
+  FAILED
+}
+
+enum AppSource {
+  ONBOARDING_FORM
+  GOOGLE
+  MANUAL_UPLOAD
+  LINKEDIN
+}
+
+enum AffiliateTier {
+  BRONZE
+  SILVER
+  GOLD
+}
+
+// ---------------- Existing User model: fields UNCHANGED + add NEW nullable fields ----
+model User {
+  id                         String          @id @default(uuid())
+  // ------------- ORIGINAL (BACKWARD COMPATIBLE — byte identical structure) ----------------
+  phoneNumber                String          @unique
+  email                      String?         @unique
+  role                       Role            @default(USER)
+  subscriptionEndsAt         DateTime?
+  payments                   Payment[]
+  savedJobs                  SavedJob[]
+  createdAt                  DateTime        @default(now())
+  updatedAt                  DateTime        @updatedAt
+  // ------------- NEW nullable additive fields --------------------------------------------------
+  firstName                  String?
+  lastName                   String?
+  passwordHash               String?
+  googleId                   String?         @unique
+  source                     AppSource       @default(MANUAL_UPLOAD)
+  country                    String?         @default("Kenya")
+  profileHeadline            String?         @db.Text
+  rawResumeText              String?         @db.Text
+  rawResumeBlobUrl           String?
+  rewrittenResumeMarkdown    String?         @db.Text
+  rewrittenResumeBlobUrlPdf  String?
+  rewrittenResumeBlobUrlDocx String?
+  atsScore                   Int?            @default(0)
+  atsAudit                   Json?
+  skills                     Json? // MySQL: stored as JSON array of strings. Example: ["Clinical Scribe","KNCK Registered","HIPAA trained"]
+  certifications             Json?
+  preferredShifts            Json? // MySQL: stored as JSON array of strings. Example: ["Kenya 9pm-5am (US Daytime)","12hr weekend shifts"]
+  preferredCountries         Json? // MySQL: stored as JSON array of strings. Default ["US","UK","EU","Kenya"]
+  minMonthlyCompensation     Int?
+  lastLoggedInAt             DateTime?
+  tier                       PaymentTier     @default(FREE)
+  jobTitleTarget             String?
+  yearsExperience            Int?
+  autoRenewSubscription      Boolean         @default(true)
+  isActive                   Boolean         @default(true) // admin soft deactivation
+  // ------------- NEW relations (additive) ------------------------------------------------------
+  resumes                    ResumeVersion[]
+  matches                    JobMatch[]
+  applications               Application[]
+  affiliate                  Affiliate?
+
+  @@index([phoneNumber])
+}
+
+// ---------------- Existing Job model: fields UNCHANGED + add NEW nullable fields ----------
+model Job {
+  // ---------------- ORIGINAL (BACKWARD COMPATIBLE — byte identical) ---------------------------
+  id               String        @id @default(uuid())
+  title            String
+  company          String
+  salary           String
+  shift            String
+  qualification    String
+  rawApplyUrl      String        @unique
+  category         String
+  sourceAgency     String
+  isActive         Boolean       @default(true)
+  savedBy          SavedJob[]
+  createdAt        DateTime      @default(now())
+  // ---------------- NEW additive nullable fields ------------------------------------------------
+  description      String?       @db.Text
+  requirements     String?       @db.Text
+  responsibilities String?       @db.Text
+  location         String?
+  postedAt         DateTime?
+  expiresAt        DateTime?
+  matchKeywords    Json? // MySQL JSON array of strings: ["Epic Scribe","Orthopedic","Telehealth"]
+  skillsRequired   Json? // MySQL JSON array of strings: ["HIPAA","SOAP","Epic EHR","Typing 70+ WPM"]
+  employerId       String?
+  employer         Employer?     @relation(fields: [employerId], references: [id])
+  matches          JobMatch[]
+  applications     Application[]
+
+  @@index([category])
+  @@index([isActive])
+}
+
+// ---------------- Existing Payment model: fields UNCHANGED + add NEW D fields ----------------
+model Payment {
+  // ---------------- ORIGINAL (BACKWARD COMPATIBLE — byte identical) ---------------------------
+  id                 String        @id @default(uuid())
+  merchantRequestId  String        @unique
+  checkoutRequestId  String        @unique
+  phoneNumber        String
+  amount             Float
+  mpesaReceiptNo     String?       @unique
+  status             PaymentStatus @default(PENDING)
+  userId             String
+  user               User          @relation(fields: [userId], references: [id])
+  createdAt          DateTime      @default(now())
+  // ---------------- NEW D Monetization additive fields ----------------------------------------
+  amountKES          Float?
+  provider           String?       @default("mpesa")
+  receiptUrl         String?
+  promocodeUsed      String?
+  tier               PaymentTier?
+  subscriptionEndsAt DateTime?
+
+  @@index([checkoutRequestId])
+}
+
+// ---------------- Existing SavedJob model: UNCHANGED structurally -----------------------------
+model SavedJob {
+  id        String   @id @default(uuid())
+  userId    String
+  jobId     String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  job       Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, jobId])
+}
+
+// ============== NEW ADDITIVE MODELS ONLY BELOW ===============================================
+
+// Pluggable ATS ingestion sources. Add rows day by day (no code changes) —
+// e.g. atsType="greenhouse" token="anthropic", atsType="greenhouse" token="cloudflare",
+// atsType="lever" token="company-slug". Each adapter maps (atsType, token) to its API.
+model AtsSource {
+  id        String   @id @default(uuid())
+  atsType   String // "greenhouse" | "lever" | "html" ... adapter registry key
+  token     String // greenhouse board_token / lever company slug / html source key
+  name      String // human label, e.g. "Anthropic"
+  origin    String? // optional base URL / apply origin override
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@unique([atsType, token])
+  @@index([atsType, isActive])
+}
+
+model ResumeVersion {
+  id                String   @id @default(uuid())
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  version           Int      @default(1)
+  sourceKind        String // "ORIGINAL_KENYAN_CV" | "AI_REWRITE_US_FORMAT" | "AI_REWRITE_ROLE_TAILORED"
+  roleTargetJobId   String?
+  rawInputText      String   @db.Text
+  llmOutputMarkdown String   @db.Text
+  promptSnapshot    String   @db.Text
+  modelName         String
+  tokensUsed        Int
+  atsScoreSnapshot  Int
+  pdfUrl            String?
+  docxUrl           String?
+  createdAt         DateTime @default(now())
+
+  @@unique([userId, version])
+  @@index([userId, version])
+}
+
+model JobMatch {
+  id             String    @id @default(uuid())
+  userId         String
+  jobId          String
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  job            Job       @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  overallPct     Int // 94
+  skillBreakdown Json
+  reasons        Json? // MySQL JSON array of MatchReason strings: ["EXACT_SKILL","CERT_EQUIVALENT","KEYWORD_HIT"]
+  semanticScore  Float?
+  keywordScore   Float?
+  recalcVersion  Int
+  narrative      String?   @db.Text
+  createdAt      DateTime  @default(now())
+  expiresAt      DateTime?
+
+  @@unique([userId, jobId, recalcVersion])
+  @@index([userId, overallPct])
+}
+
+model Application {
+  id                        String       @id @default(uuid())
+  userId                    String
+  jobId                     String
+  user                      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  job                       Job          @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  stage                     ApplyStage   @default(QUEUED)
+  approvedAt                DateTime?
+  generatedCoverLetterId    String?
+  generatedResumeVersionId  Int?
+  submissionPayloadSnapshot Json?
+  externalApplyUrl          String?
+  externalConfirmationId    String?
+  failureReason             String?       @db.Text
+  aiAudit                   Json?
+  createdAt                 DateTime     @default(now())
+  submittedAt               DateTime?
+  coverLetter               CoverLetter?
+
+  @@index([userId, stage])
+  @@index([jobId])
+}
+
+model CoverLetter {
+  id                String      @id @default(uuid())
+  applicationId     String      @unique
+  application       Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  llmPromptSnapshot String      @db.Text
+  modelName         String
+  tokensUsed        Int
+  markdownBody      String      @db.Text
+  pdfUrl            String?
+  docxUrl           String?
+  createdAt         DateTime    @default(now())
+}
+
+model LlmCallAudit {
+  id               String   @id @default(uuid())
+  userId           String?
+  feature          String // "A_RESUME_REWRITE" | "B_MATCHING_RECALC" | "C_COVER_LETTER_GEN" | "C_MATCH_EXPLAIN"
+  model            String
+  promptTokens     Int
+  outputTokens     Int
+  totalCostDecimal Float
+  durationMs       Int
+  success          Boolean
+  errorMessage     String?   @db.Text
+  createdAt        DateTime @default(now())
+
+  @@index([userId, feature])
+  @@index([createdAt])
+}
+
+model Employer {
+  id          String   @id @default(uuid())
+  companyName String
+  email       String   @unique
+  companyUrl  String?
+  logoUrl     String?
+  jobs        Job[]
+  contactName String?
+  plan        String?  @default("PAY_PER_POST")
+  createdAt   DateTime @default(now())
+}
+
+model Affiliate {
+  id                   String          @id @default(uuid())
+  userId               String          @unique
+  user                 User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  referralCode         String          @unique
+  landingPageUrl       String?
+  conversions          Int             @default(0)
+  clicks               Int             @default(0)
+  totalEarnedDecimal   Float           @default(0)
+  pendingPayoutDecimal Float           @default(0)
+  tier                 AffiliateTier   @default(BRONZE)
+  createdAt            DateTime        @default(now())
+  referrals            ReferralEvent[]
+  payouts              Payout[]
+}
+
+model ReferralEvent {
+  id                      String    @id @default(uuid())
+  affiliateId             String
+  affiliate               Affiliate @relation(fields: [affiliateId], references: [id], onDelete: Cascade)
+  referredUserId          String?
+  newPaymentId            String?
+  kind                    String // "CLICK" | "SIGNUP" | "PAYMENT"
+  ip                      String?
+  ua                      String?
+  commissionAmountDecimal Float?
+  createdAt               DateTime  @default(now())
+
+  @@index([affiliateId, kind, createdAt])
+}
+
+model Payout {
+  id             String    @id @default(uuid())
+  affiliateId    String
+  affiliate      Affiliate @relation(fields: [affiliateId], references: [id], onDelete: Cascade)
+  amountDecimal  Float
+  status         String    @default("REQUESTED") // REQUESTED, SENT_MPESA, PAID, FAILED
+  mpesaReceiptNo String?
+  mpesaPhone     String?
+  requestedAt    DateTime  @default(now())
+  paidAt         DateTime?
+  failureReason  String?   @db.Text
+}
+
+// ============== ADMIN / CONFIG (SUPER-USER INTERFACE) =========================================
+
+// DB-managed LLM providers. Keys are encrypted at rest (AES-256-GCM via
+// AdminSecretService) and exposed as masked hints through the admin API.
+model AdminLlmProvider {
+  id                 String   @id @default(uuid())
+  provider           String // "openai" | "anthropic" | "gemini"
+  label              String // human label, e.g. "OpenAI production"
+  baseUrl            String? // optional API base URL (proxy/gateway support)
+  isActive           Boolean  @default(true)
+  priority           Int      @default(100) // lower = preferred first
+  defaultModel       String // e.g. gpt-4o-mini / claude-sonnet-5-5 / gemini-2.5-flash
+  apiKeyEncrypted    String? // AES-256-GCM ciphertext (base64)
+  apiKeyIv           String? // initialization vector (base64)
+  apiKeyTag          String? // auth tag (base64)
+  apiKeyHint         String? // e.g. "sk-ant-...1QAA" for UI display
+  accessRoles        Json // JSON array of Role strings allowed to use this provider, e.g. ["USER","SUBSCRIBER","ADMIN"]
+  maxTokensLimit     Int? // optional per-call cap
+  extraJson          Json? // provider-specific settings (temperature, etc.)
+  updatedByUserId    String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([provider, isActive])
+  @@index([priority])
+}
+
+// Global platform configuration / feature flags / security knobs.
+model SystemConfig {
+  id           String   @id @default(uuid())
+  key          String   @unique
+  name         String
+  description  String?  @db.Text
+  type         String // "string" | "number" | "boolean" | "json" | "secret"
+  valueJson    Json?
+  valueString  String?  @db.Text
+  encrypted    Boolean  @default(false) // when type="secret" valueString is AES-256-GCM
+  isPublic     Boolean  @default(false) // if true, readable via public endpoint
+  isEditable   Boolean  @default(true)
+  updatedByUserId String?
+  updatedAt    DateTime @updatedAt
+  createdAt    DateTime @default(now())
+}
+
+// Audit trail for every admin + sensitive user action.
+model AdminAuditLog {
+  id           String   @id @default(uuid())
+  actorUserId  String?
+  action       String // e.g. USER_CREATE, USER_UPDATE_ROLE, LLM_PROVIDER_UPDATE, CONFIG_UPDATE, USER_SIGNIN
+  targetType   String? // "user" | "llm_provider" | "system_config" | "session" | ...
+  targetId     String?
+  meta         Json? // extra structured context (before/after, reason, etc.)
+  ipAddress    String?
+  userAgent    String?
+  createdAt    DateTime @default(now())
+
+  @@index([actorUserId, createdAt])
+  @@index([action, createdAt])
+}

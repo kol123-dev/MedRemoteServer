@@ -1,0 +1,911 @@
+{
+  "info": {
+    "_postman_id": "medremote-ai-suite-v1",
+    "name": "MedRemote AI Suite — Full Auth + AI + Billing E2E",
+    "description": "End-to-end Postman collection for MedRemote backend. Covers: Auth (JWT Bearer + cookie), Users onboarding, AI Resume Builder (A), Smart Matching (B), 1-Click Auto-Apply (C), M-Pesa/Paystack Billing (D), Affiliate payouts, Employer jobs, and v1 backward-compat routes.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8000",
+      "type": "string"
+    },
+    {
+      "key": "accessToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "refreshToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "candidateEmail",
+      "value": "postman.candidate@medremote.ke",
+      "type": "string"
+    },
+    {
+      "key": "candidatePhone",
+      "value": "0700009999",
+      "type": "string"
+    },
+    {
+      "key": "candidatePassword",
+      "value": "MedRemote@Postman_2026!",
+      "type": "string"
+    },
+    {
+      "key": "affiliateEmail",
+      "value": "postman.affiliate@medremote.ke",
+      "type": "string"
+    },
+    {
+      "key": "affiliatePhone",
+      "value": "0700008888",
+      "type": "string"
+    },
+    {
+      "key": "affiliatePassword",
+      "value": "MedRemote@Affiliate_2026!",
+      "type": "string"
+    },
+    {
+      "key": "affiliateAccessToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "referralCode",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "matchId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "applicationId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "resumeVersionId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "jobId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "checkoutId",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "event": [],
+  "item": [
+    {
+      "name": "00 — Health",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/health",
+          "host": ["{{baseUrl}}"],
+          "path": ["health"]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Health returns 200\", function () { pm.response.to.have.status(200); });",
+              "pm.test(\"Status is ok\", function () { pm.expect(pm.response.json().status).to.eql(\"ok\"); });"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "01 — Affiliate Signup (create partner account)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"{{affiliateEmail}}\",\n  \"firstName\": \"Postman\",\n  \"lastName\": \"Affiliate\",\n  \"phoneNumber\": \"{{affiliatePhone}}\",\n  \"password\": \"{{affiliatePassword}}\",\n  \"confirmPassword\": \"{{affiliatePassword}}\",\n  \"country\": \"KE\",\n  \"termsAccepted\": true\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/auth/signup",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "auth", "signup"]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Signup 201 with JWT\", function () { pm.response.to.have.status(201); });",
+              "pm.collectionVariables.set(\"affiliateAccessToken\", pm.response.json().accessToken);"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 — Get Affiliate Referral Code",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{affiliateAccessToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/affiliates/me/code",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "affiliates", "me", "code"]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Referral code 200 and 6-char uppercase\", function () {",
+              "    pm.response.to.have.status(200);",
+              "    var json = pm.response.json();",
+              "    pm.expect(json.code).to.match(/^[A-Z0-9]{6,12}$/);",
+              "    pm.collectionVariables.set(\"referralCode\", json.code);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "03 — Candidate Signup with Referral Code",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"{{candidateEmail}}\",\n  \"firstName\": \"Postman\",\n  \"lastName\": \"Candidate\",\n  \"phoneNumber\": \"{{candidatePhone}}\",\n  \"password\": \"{{candidatePassword}}\",\n  \"confirmPassword\": \"{{candidatePassword}}\",\n  \"country\": \"KE\",\n  \"termsAccepted\": true,\n  \"referralCode\": \"{{referralCode}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/auth/signup",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "auth", "signup"]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Candidate signup 201\", function () { pm.response.to.have.status(201); });",
+              "pm.collectionVariables.set(\"accessToken\", pm.response.json().accessToken);"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "04 — Candidate Signin",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"emailOrPhone\": \"{{candidateEmail}}\",\n  \"password\": \"{{candidatePassword}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/auth/signin",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "auth", "signin"]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Signin 200 with expiresIn=900\", function () {",
+              "    pm.response.to.have.status(200);",
+              "    pm.expect(pm.response.json().expiresIn).to.eql(900);",
+              "});",
+              "pm.collectionVariables.set(\"accessToken\", pm.response.json().accessToken);"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "05 — Get Me (UserMeShape)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/users/me",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "users", "me"]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"GET /me 200 with required fields\", function () {",
+              "    pm.response.to.have.status(200);",
+              "    var json = pm.response.json();",
+              "    pm.expect(json).to.have.property(\"id\");",
+              "    pm.expect(json).to.have.property(\"firstName\");",
+              "    pm.expect(json).to.have.property(\"email\");",
+              "    pm.expect(json).to.have.property(\"tier\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "06 — Get Me without token (expect 401)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/users/me",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "users", "me"]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"No token returns 401\", function () { pm.response.to.have.status(401); });"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "07 — Patch Me Onboarding",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"profileHeadline\": \"Registered Nurse Kenya KNCK KRCHN → Remote US Tele-Triage Nurse\",\n  \"minMonthlyCompensation\": 1450,\n  \"preferredShifts\": [\"US-NIGHT\", \"US-MORNING\"],\n  \"preferredCountries\": [\"United States\", \"United Kingdom\", \"Canada\"],\n  \"skills\": [\"SOAP Notes\", \"Epic EHR\", \"Tele-triage\", \"HIPAA\", \"Patient Assessment\", \"Kenya KRCHN Diploma\", \"ED Triage\"],\n  \"phoneNumber\": \"{{candidatePhone}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/users/me",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "users", "me"]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"PATCH /me 200 saves profile\", function () {",
+              "    pm.response.to.have.status(200);",
+              "    pm.expect(pm.response.json().profileHeadline).to.contain(\"KNCK\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "08 — Billing Plans (public + mpesa index 0)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/billing/plans",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "billing", "plans"]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Plans 200 and BASIC.paymentProviders[0] == mpesa\", function () {",
+              "    pm.response.to.have.status(200);",
+              "    var plans = pm.response.json();",
+              "    var basic = plans.find(p => p.id === \"BASIC\");",
+              "    pm.expect(basic.paymentProviders[0]).to.eql(\"mpesa\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "09 — AI Resume Analyze",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"format\": \"TEXT\",\n  \"rawText\": \"MUTUA, Eunice Wanjiru — RN (KRCHN Kenya National Council of Nurses KNCK)\\nEDUCATION: Kenya Medical Training College (KMTC) — Kenya Registered Community Health Nurse KRCHN, Diploma 2019-2022. TVET Level 4 First Aid & CPR.\\nCERTIFICATIONS: KNCK Current Practicing License 2024-2026.\\nEXPERIENCE: 3 years Nurse Triage at Kijabe Mission Hospital Emergency Department. Conducted triage acuity 1-5, documented SOAP notes using Epic EHR on tablets, maintained HIPAA patient confidentiality. Managed 14-bed ward overnight shifts.\\nSOFTWARE SKILLS: Epic Scribe, Microsoft Excel, WhatsApp Business, CareAware Messenger.\\nLANGUAGES: English (fluent professional), Swahili (native), Kikuyu.\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/ai-resume/analyze",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "ai-resume", "analyze"]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Analyze 200 returns atsScore and certs\", function () {",
+              "    pm.response.to.have.status(200);",
+              "    var json = pm.response.json();",
+              "    pm.expect(json).to.have.property(\"atsScore\");",
+              "    pm.expect(json).to.have.property(\"certificationsFound\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "10 — AI Resume Rewrite (FREE tier exhausted → 402)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"rawText\": \"Kenya Registered Nurse KRCHN KNCK, 3 years ED triage, Epic EHR, HIPAA\",\n  \"jobDescription\": \"Tele-Triage Nurse remote US\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/ai-resume/rewrite",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "ai-resume", "rewrite"]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Rewrite blocked for FREE tier (402 or 403)\", function () {",
+              "    pm.expect(pm.response.code).to.be.oneOf([402, 403]);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "11 — List Jobs (v1 backward compat)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/jobs?limit=5",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "jobs"],
+          "query": [
+            {
+              "key": "limit",
+              "value": "5"
+            }
+          ]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Jobs list 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "    var json = pm.response.json();",
+              "    pm.expect(json.jobs.length).to.be.above(0);",
+              "    pm.collectionVariables.set(\"jobId\", json.jobs[0].id);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "12 — AI Match Recalc (queue)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/ai-match/recalc",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "ai-match", "recalc"]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Recalc queued 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "    pm.expect(pm.response.json().queued).to.eql(true);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "13 — List Top Matches",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/ai-match?limit=5",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "ai-match"],
+          "query": [
+            {
+              "key": "limit",
+              "value": "5"
+            }
+          ]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Matches list 200 and captures matchId\", function () {",
+              "    pm.response.to.have.status(200);",
+              "    var matches = pm.response.json().matches;",
+              "    pm.expect(matches.length).to.be.above(0);",
+              "    pm.collectionVariables.set(\"matchId\", matches[0].matchId);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "14 — Explain Match",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/ai-match/{{matchId}}/explain",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "ai-match", "{{matchId}}", "explain"]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Explain 200\", function () { pm.response.to.have.status(200); });"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "15 — Auto-Apply Preview (FREE tier blocked)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"jobId\": \"{{jobId}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/ai-apply/preview",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "ai-apply", "preview"]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Apply preview blocked for FREE tier (402 or 403)\", function () {",
+              "    pm.expect(pm.response.code).to.be.oneOf([402, 403]);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "16 — Auto-Apply Submit without strict consent (expect 400)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"jobId\": \"{{jobId}}\",\n  \"candidateApprovedAllDisclosures\": \"yes-I-agree\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/ai-apply/confirm-approve-submit",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "ai-apply", "confirm-approve-submit"]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Consent string NOT strict boolean true → 400\", function () { pm.response.to.have.status(400); });"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "17 — Billing STK Checkout (mock provider)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"tier\": \"BASIC\",\n  \"phoneNumber\": \"{{candidatePhone}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/billing/stk",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "billing", "stk"]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"STK checkout 200 with checkoutId\", function () {",
+              "    pm.response.to.have.status(200);",
+              "    var json = pm.response.json();",
+              "    pm.expect(json).to.have.property(\"checkoutId\");",
+              "    pm.collectionVariables.set(\"checkoutId\", json.checkoutId || json.providerReference);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "18 — Webhook M-Pesa Callback SUCCESS (BASIC KES 500)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"Body\": {\n    \"stkCallback\": {\n      \"MerchantRequestID\": \"AG_20261002_00000_POSTMAN\",\n      \"CheckoutRequestID\": \"ws_CO_POSTMAN_TEST_1234\",\n      \"ResultCode\": 0,\n      \"ResultDesc\": \"Success. Service request accepted successfully.\",\n      \"CallbackMetadata\": {\n        \"Item\": [\n          { \"Name\": \"Amount\", \"Value\": 500 },\n          { \"Name\": \"MpesaReceiptNumber\", \"Value\": \"POSTMAN-RECEIPT-KES500-001\" },\n          { \"Name\": \"Balance\", \"Value\": 12500.50 },\n          { \"Name\": \"TransactionDate\", \"Value\": \"20261002173200\" },\n          { \"Name\": \"Phone\", \"Value\": 254700000999 }\n        ]\n      }\n    }\n  }\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/webhooks/payments/mpesa-callback",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "webhooks", "payments", "mpesa-callback"]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Webhook accepted 200\", function () { pm.response.to.have.status(200); });"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "19 — Tier Status after Payment (BASIC active)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/users/me/tier-status",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "users", "me", "tier-status"]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Tier status 200 and BASIC active\", function () {",
+              "    pm.response.to.have.status(200);",
+              "    var json = pm.response.json();",
+              "    pm.expect(json.tier).to.eql(\"BASIC\");",
+              "    pm.expect(json.isCurrentlySubscribed).to.eql(true);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "20 — Affiliate Payout Math (KES 500 × 20% = KES 100)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{affiliateAccessToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/affiliates/me/stats",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "affiliates", "me", "stats"]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Affiliate stats 200 and pending payout == KES 100\", function () {",
+              "    pm.response.to.have.status(200);",
+              "    var json = pm.response.json();",
+              "    var pending = json.pendingPayoutKES || json.pendingBalanceKES || 0;",
+              "    pm.expect(pending).to.eql(100);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "21 — Affiliate 302 Redirect (public)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/t/{{referralCode}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["t", "{{referralCode}}"]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Affiliate redirect 302 sets mr_ref cookie\", function () {",
+              "    pm.response.to.have.status(302);",
+              "    pm.expect(pm.response.to.have.header(\"Set-Cookie\"));",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "22 — Refresh Token",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/auth/refresh",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "auth", "refresh"]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Refresh 200 returns new accessToken\", function () {",
+              "    pm.response.to.have.status(200);",
+              "    pm.expect(pm.response.json().accessToken).to.be.a(\"string\");",
+              "    pm.collectionVariables.set(\"accessToken\", pm.response.json().accessToken);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "23 — Logout",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/auth/logout",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "auth", "logout"]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Logout 200\", function () { pm.response.to.have.status(200); });"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    }
+  ]
+}
