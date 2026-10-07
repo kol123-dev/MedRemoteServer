@@ -16,26 +16,18 @@ jobs:
 
     - name: Deploy to VPS
       uses: appleboy/ssh-action@master
-      env:
-        DEPLOY_TOKEN: ${{ secrets.DEPLOY_TOKEN }}
-        REPO: ${{ github.repository }}
       with:
         host: ${{ secrets.VPS_HOST }}
         username: infinia
         key: ${{ secrets.SSH_PRIVATE_KEY }}
-        envs: DEPLOY_TOKEN,REPO
         script: |
           set -e
           echo "Moving to project directory..."
           cd /var/www/medremote-backend
 
-          echo "Configuring git remote (HTTPS + token)..."
-          # Use an ephemeral PAT so no credentials are stored on the server.
-          if [ -z "${DEPLOY_TOKEN}" ]; then
-            echo "ERROR: secrets.DEPLOY_TOKEN is not set. Add a PAT with Contents:Read scope to fetch this repo."
-            exit 1
-          fi
-          git remote set-url origin "https://x-access-token:${DEPLOY_TOKEN}@github.com/${REPO}.git"
+          echo "Configuring git remote (public HTTPS URL)..."
+          # Public repo: no token needed for pulling.
+          git remote set-url origin https://github.com/kol123-dev/MedRemoteServer.git
 
           echo "Fetching from origin..."
           # Sync tracked files to origin/main.
